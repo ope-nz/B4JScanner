@@ -1,6 +1,6 @@
 # B4JScanner
 
-A Windows desktop tool that scans a [B4J](https://www.b4x.com/b4j.html) project and produces a Software Bill of Materials (SBOM) report. It identifies all library dependencies, resolves their versions, discovers underlying Maven JARs, generates an HTML report, and can run a vulnerability check via OSV Scanner.
+A Windows desktop tool for B4J projects that produces Software Bill of Materials (SBOM) reports and vulnerability scans. It identifies all library dependencies, resolves their versions, discovers underlying Maven JARs, generates HTML reports, and runs vulnerability checks via OSV Scanner. It can also scan library folders independently of any project to produce a standalone library inventory and vulnerability report.
 
 ![B4JScanner](screenshot.png)
 
@@ -36,20 +36,22 @@ Double-click `B4JScanner.exe`. The last-used folder paths are saved to `b4jscann
 | Libraries | Path to the main B4J Libraries folder |
 | Add. Libraries | Path to the AdditionalLibraries folder |
 
-Buttons (left to right):
+Buttons:
 
-| Button | When enabled | Action |
-|--------|-------------|--------|
-| **Dependency Scan** | Always | Parses the project, resolves all libraries, writes `.cdx.json`, `.md`, and `.html` output files |
-| **OSV Scan** | After Dependency Scan | Runs `osv-scanner` against the SBOM and regenerates the HTML report with vulnerability findings |
-| **Open Report** | After Dependency Scan | Opens the HTML report in the default browser |
-| **Open SBOM** | After Dependency Scan | Opens the raw `.cdx.json` file |
+| Button | Position | When enabled | Action |
+|--------|----------|-------------|--------|
+| **Project Dependency Scan** | Left | Always (requires project + at least one library folder) | Parses the project, resolves all libraries, writes `.cdx.json`, `.md`, and `.html` output files, then automatically runs OSV Scanner and updates the report with vulnerability findings |
+| **Open Project Report** | Left | After scan | Opens the HTML report in the default browser |
+| **Open Project SBOM** | Left | After scan | Opens the raw `.cdx.json` file |
+| **Library Scan** | Right | Always (requires at least one library folder) | Scans all JARs in both library folders, writes `library-scan.cdx.json` and `library-scan.html` next to `B4JScanner.exe`, runs OSV Scanner, and opens the report |
 
 ### Typical workflow
 
-1. Select folders and click **Dependency Scan**
-2. Click **Open Report** to view the HTML report immediately
-3. Optionally click **OSV Scan** to add vulnerability data, then refresh the browser
+1. Select folders and click **Project Dependency Scan**
+2. The scan runs automatically end-to-end: dependency resolution, SBOM generation, OSV vulnerability check
+3. Click **Open Project Report** to view the completed HTML report
+
+To scan all installed libraries independently of any specific project, click **Library Scan** with only the library folder paths set.
 
 ---
 
@@ -287,9 +289,11 @@ The remaining imports are collapsed to their two-segment prefix (e.g. `com.zaxxe
 
 ## Output Files
 
-All three files are written to the project folder after a Dependency Scan.
+### Project scan output
 
-### `{ProjectName}.html`
+Three files are written to the project folder after a **Project Dependency Scan**.
+
+#### `{ProjectName}.html`
 
 A self-contained HTML report viewable in any browser.
 
@@ -297,14 +301,15 @@ A self-contained HTML report viewable in any browser.
 
 Sections:
 
-- Summary cards (B4X Libraries, Found, Not Found, Maven Deps, Vulnerabilities)
+- Summary cards (B4X Libraries, Found, Not Found, Maven Deps, Vulnerabilities, Critical, High)
 - Project info
-- **B4X Libraries** table: B4X Jar and b4xlib entries with version, type badge, dependency count, and Found/Missing status
+- **B4X Libraries** table: B4X Jar and b4xlib entries with version, type badge, dependency count, Found/Missing status, and Java package name
 - **Maven Dependencies** table: native JARs from b4xlib expansion, `#AdditionalJar` entries, and B4X `<dependsOn>` deps, each with group ID, artifact ID, version, source badge, and PURL
-- Vulnerabilities with severity badges and fix versions (populated after OSV Scan)
+- **Non-Maven Dependencies** table: JARs that could not be identified with Maven coordinates
+- Vulnerabilities with severity badges and fix versions (included automatically)
 - Java import prefixes
 
-### `{ProjectName}.cdx.json`
+#### `{ProjectName}.cdx.json`
 
 A [CycloneDX 1.5](https://cyclonedx.org/specification/overview/) JSON SBOM. Contains:
 
@@ -325,28 +330,52 @@ B4J-specific properties on each component:
 | `b4j:versionSource` | Where the version came from (`xml`, `b4xlib-manifest`, `manifest:*`, `filename`, `library-name`) |
 | `b4j:dependsOn` | Repeated for each underlying dependency name |
 
-### `{ProjectName}.md`
+#### `{ProjectName}.md`
 
 A Markdown report with the same content as the HTML report (without vulnerability data).
+
+### Library scan output
+
+Two files are written next to `B4JScanner.exe` after a **Library Scan**.
+
+#### `library-scan.html`
+
+A self-contained HTML report covering the entire library folder contents.
+
+Sections:
+
+- Summary cards (JARs Scanned, Identified, Unidentified, Vulnerabilities, Critical, High)
+- **High / Critical Findings** table: one row per affected package with severity pill counts and a link to the full vulnerability detail (only shown when findings exist)
+- **Identified JARs** table: JARs where Maven coordinates were resolved, with group ID, artifact ID, version, and PURL (collapsible)
+- **Unidentified JARs** table: JARs with no Maven metadata; B4J library JARs (those with a `.xml` sidecar) are flagged with a **B4J** badge (collapsible)
+- **Vulnerabilities** detail: per-package tables with severity badges, CVE aliases, and fix versions (collapsible)
+
+All sections are collapsible. Cards link to their corresponding section.
+
+#### `library-scan.cdx.json`
+
+A CycloneDX 1.5 SBOM covering all identified JARs (those with resolvable Maven coordinates), used as input to OSV Scanner.
 
 ---
 
 ## Vulnerability Scanning
 
-Click **OSV Scan** after a Dependency Scan. B4JScanner looks for `osv-scanner` in this order:
+Both **Project Dependency Scan** and **Library Scan** run OSV Scanner automatically at the end of each scan. No separate step is required.
+
+B4JScanner looks for `osv-scanner` in this order:
 
 1. Any file matching `osv-scanner*` in the same folder as `B4JScanner.exe`
 2. `osv-scanner` on the system PATH
 
-The scanner is invoked with JSON output so results can be embedded in the HTML report:
+The scanner is invoked with JSON output:
 
 ```
-osv-scanner --format json -L "{ProjectName}.cdx.json"
+osv-scanner --format json -L "{sbom}.cdx.json"
 ```
 
 The file must have the `.cdx.json` extension (required by osv-scanner). Download osv-scanner from [https://github.com/google/osv-scanner/releases](https://github.com/google/osv-scanner/releases) and place the `.exe` next to `B4JScanner.exe`.
 
-After the scan completes, the HTML report is regenerated with a structured vulnerability table showing severity badges (CRITICAL, HIGH, MEDIUM, LOW), CVE aliases, and the recommended fix version for each finding. Refresh the browser to see the updated report.
+The HTML report is generated with vulnerability results included. The report shows severity badges (CRITICAL, HIGH, MEDIUM, LOW), CVE aliases, and the recommended fix version for each finding. Critical and High counts appear as dedicated summary cards.
 
 ---
 
