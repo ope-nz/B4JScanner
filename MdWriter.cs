@@ -27,11 +27,21 @@ namespace B4JScanner
                 }
                 b4xLibs.Add(lib);
                 if (lib.Found) b4xFound++; else b4xNotFound++;
+            }
+
+            var b4xLibNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var lib in b4xLibs)
+                b4xLibNames.Add(lib.LibraryName);
+
+            foreach (var lib in b4xLibs)
+            {
                 if (lib.Info == null) continue;
                 foreach (var dep in lib.Info.ResolvedDeps)
                 {
-                    if (dep.Maven == null) continue;
-                    if (seenPurls.Add(dep.Maven.ToPurl()))
+                    if (b4xLibNames.Contains(dep.Name)) continue;
+                    string depPurl = dep.Maven != null ? dep.Maven.ToPurl() : null;
+                    string dedupKey = depPurl ?? ("name:" + dep.Name.ToLowerInvariant());
+                    if (seenPurls.Add(dedupKey))
                         mavenDeps.Add(dep);
                 }
             }
@@ -75,8 +85,8 @@ namespace B4JScanner
             // B4X Libraries table
             sb.AppendLine("## B4X Libraries");
             sb.AppendLine();
-            sb.AppendLine("| Library | Type | Version | Deps |");
-            sb.AppendLine("|---------|------|---------|-----:|");
+            sb.AppendLine("| Library | Package | Type | Version | Deps |");
+            sb.AppendLine("|---------|---------|------|---------|-----:|");
 
             foreach (var lib in b4xLibs)
             {
@@ -86,16 +96,59 @@ namespace B4JScanner
                 string ver   = info != null && !string.IsNullOrEmpty(info.Version) ? info.Version : "unknown";
                 int depCount = info != null ? info.ResolvedDeps.Count : 0;
                 string deps = depCount > 0 ? depCount.ToString() : "-";
+                string pkg   = info != null ? PackageOf(info.JavaClass) : null;
 
                 sb.AppendLine("| " + Md(lib.LibraryName) + status
+                            + " | " + (pkg != null ? "`" + Md(pkg) + "`" : "-")
                             + " | " + typeLabel
                             + " | " + Md(ver)
                             + " | " + deps + " |");
             }
             sb.AppendLine();
 
-            // Maven dependencies table
-            if (totalMavenDeps > 0)
+            // Split deps into Maven (have GroupId) and non-Maven
+            var mavenRows    = new List<string[]>(); // name, gId, aId, ver, src, purl
+            var nonMavenRows = new List<string[]>(); // name, ver, src
+
+            foreach (var lib in javaDeps)
+            {
+                var info = lib.Info;
+                string ver  = info != null && !string.IsNullOrEmpty(info.Version) ? info.Version : "unknown";
+                bool hasCoords = info != null && info.Maven != null && info.Maven.GroupId != null;
+                string src  = lib.IsAdditionalJar ? "AJ" : "b4xlib dep";
+                if (hasCoords)
+                    mavenRows.Add(new string[] { Md(lib.LibraryName),
+                        "`" + Md(info.Maven.GroupId) + "`",
+                        "`" + Md(info.Maven.ArtifactId) + "`",
+                        Md(ver), src, "`" + info.Maven.ToPurl() + "`" });
+                else
+                    nonMavenRows.Add(new string[] { Md(lib.LibraryName), Md(ver), src });
+            }
+
+            mavenDeps.Sort((a, b) =>
+            {
+                string ag = a.Maven != null ? a.Maven.GroupId ?? "" : "";
+                string bg = b.Maven != null ? b.Maven.GroupId ?? "" : "";
+                string aa = a.Maven != null ? a.Maven.ArtifactId ?? "" : "";
+                string ba = b.Maven != null ? b.Maven.ArtifactId ?? "" : "";
+                int c = string.Compare(ag, bg, StringComparison.OrdinalIgnoreCase);
+                return c != 0 ? c : string.Compare(aa, ba, StringComparison.OrdinalIgnoreCase);
+            });
+
+            foreach (var dep in mavenDeps)
+            {
+                bool hasCoords = dep.Maven != null && dep.Maven.GroupId != null;
+                string dVer = dep.Maven != null ? dep.Maven.Version ?? "unknown" : "unknown";
+                if (hasCoords)
+                    mavenRows.Add(new string[] { Md(dep.Name),
+                        "`" + Md(dep.Maven.GroupId) + "`",
+                        "`" + Md(dep.Maven.ArtifactId) + "`",
+                        Md(dVer), "B4X dep", "`" + dep.Maven.ToPurl() + "`" });
+                else
+                    nonMavenRows.Add(new string[] { Md(dep.Name), Md(dVer), "B4X dep" });
+            }
+
+            if (mavenRows.Count > 0)
             {
                 sb.AppendLine("## Maven Dependencies");
                 sb.AppendLine();
@@ -104,44 +157,20 @@ namespace B4JScanner
                 sb.AppendLine();
                 sb.AppendLine("| Name | Group ID | Artifact ID | Version | Source | PURL |");
                 sb.AppendLine("|------|----------|-------------|---------|--------|------|");
+                foreach (var row in mavenRows)
+                    sb.AppendLine("| " + row[0] + " | " + row[1] + " | " + row[2]
+                                + " | " + row[3] + " | " + row[4] + " | " + row[5] + " |");
+                sb.AppendLine();
+            }
 
-                // Native JARs (from b4xlib DependsOn expansion) and AdditionalJar entries
-                foreach (var lib in javaDeps)
-                {
-                    var info = lib.Info;
-                    string ver  = info != null && !string.IsNullOrEmpty(info.Version) ? info.Version : "unknown";
-                    bool hasCoords = info != null && info.Maven != null && info.Maven.GroupId != null;
-                    string gId  = hasCoords ? "`" + Md(info.Maven.GroupId)    + "`" : "-";
-                    string aId  = hasCoords ? "`" + Md(info.Maven.ArtifactId) + "`" : "-";
-                    string purl = hasCoords ? "`" + info.Maven.ToPurl() + "`"
-                        : (info != null && info.Maven != null && info.Maven.Note != null)
-                            ? Md(info.Maven.Note) : "-";
-                    string src  = lib.IsAdditionalJar ? "AJ" : "b4xlib dep";
-
-                    sb.AppendLine("| " + Md(lib.LibraryName)
-                                + " | " + gId
-                                + " | " + aId
-                                + " | " + Md(ver)
-                                + " | " + src
-                                + " | " + purl + " |");
-                }
-
-                // ResolvedDeps from B4X Jar <dependsOn> XML entries
-                mavenDeps.Sort((a, b) =>
-                {
-                    int c = string.Compare(a.Maven.GroupId, b.Maven.GroupId, StringComparison.OrdinalIgnoreCase);
-                    return c != 0 ? c : string.Compare(a.Maven.ArtifactId, b.Maven.ArtifactId, StringComparison.OrdinalIgnoreCase);
-                });
-
-                foreach (var dep in mavenDeps)
-                {
-                    sb.AppendLine("| " + Md(dep.Name)
-                                + " | `" + Md(dep.Maven.GroupId)    + "`"
-                                + " | `" + Md(dep.Maven.ArtifactId) + "`"
-                                + " | " + Md(dep.Maven.Version ?? "unknown")
-                                + " | B4X dep"
-                                + " | `" + dep.Maven.ToPurl() + "` |");
-                }
+            if (nonMavenRows.Count > 0)
+            {
+                sb.AppendLine("## Non-Maven Dependencies");
+                sb.AppendLine();
+                sb.AppendLine("| Name | Version | Source |");
+                sb.AppendLine("|------|---------|--------|");
+                foreach (var row in nonMavenRows)
+                    sb.AppendLine("| " + row[0] + " | " + row[1] + " | " + row[2] + " |");
                 sb.AppendLine();
             }
 
@@ -165,6 +194,13 @@ namespace B4JScanner
         static bool IsB4X(ResolvedLibrary lib)
         {
             return lib.XmlPath != null || lib.B4xlibPath != null;
+        }
+
+        static string PackageOf(string className)
+        {
+            if (string.IsNullOrEmpty(className)) return null;
+            int dot = className.LastIndexOf('.');
+            return dot > 0 ? className.Substring(0, dot) : null;
         }
 
         // Escape pipe characters so they don't break Markdown tables
