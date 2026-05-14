@@ -124,6 +124,11 @@ namespace B4JScanner
                     info.VersionSource = "xml";
                 }
 
+                // <class><name> gives the fully qualified Java class name
+                var classNode = root.SelectSingleNode("class/name");
+                if (classNode != null && !string.IsNullOrEmpty(classNode.InnerText))
+                    info.JavaClass = classNode.InnerText.Trim();
+
                 // <dependsOn> child elements list dependency JAR names
                 foreach (XmlNode dep in root.SelectNodes("dependsOn"))
                 {
