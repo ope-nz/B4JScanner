@@ -41,6 +41,7 @@ namespace B4JScanner
         public string Vendor { get; set; }
         public string Description { get; set; }
         public string VersionSource { get; set; }
+        public string JavaClass { get; set; }
         public List<string> Dependencies { get; set; }
         public MavenCoords Maven { get; set; }
         public List<ResolvedDependency> ResolvedDeps { get; set; }
