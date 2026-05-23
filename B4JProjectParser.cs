@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
+using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
 
 namespace B4JScanner
@@ -103,7 +104,10 @@ namespace B4JScanner
             libraries.Add(libName);
 
             string b4xlibPath = LibraryResolver.FindFile(libName + ".b4xlib", libsPath)
-                             ?? LibraryResolver.FindFile(libName + ".b4xlib", addLibsPath);
+                             ?? LibraryResolver.FindFile(libName + ".b4xlib", addLibsPath)
+                             ?? LibraryResolver.FindFile(libName + ".b4xlib", Path.Combine(addLibsPath, "b4j"))
+                             ?? LibraryResolver.FindFile(libName + ".b4xlib", Path.Combine(addLibsPath, "b4x"));
+
             if (b4xlibPath == null) return;
 
             foreach (string dep in ReadB4XLibDeps(b4xlibPath))
@@ -126,7 +130,9 @@ namespace B4JScanner
                         string line;
                         while ((line = reader.ReadLine()) != null)
                         {
-                            if (!line.StartsWith("DependsOn=", StringComparison.OrdinalIgnoreCase))
+                            bool isDependsOn = line.StartsWith("B4J.DependsOn=", StringComparison.OrdinalIgnoreCase) 
+                                || line.StartsWith("DependsOn=", StringComparison.OrdinalIgnoreCase);
+                            if (!isDependsOn)
                                 continue;
 
                             string val = line.Substring(line.IndexOf('=') + 1).Trim();
@@ -150,7 +156,7 @@ namespace B4JScanner
 
         static void CollectAdditionalJar(string line, B4JProject project, HashSet<string> seen)
         {
-            var m = _additionalJarRe.Match(line);
+            var m = _additionalJarRe.Match(line.Trim());
             if (!m.Success) return;
             string jar = m.Groups[1].Value.Trim();
             if (!string.IsNullOrEmpty(jar) && seen.Add(jar))
