@@ -53,25 +53,15 @@ namespace B4JScanner
                 if (inSub != null) return inSub;
             }
 
-            // 3. Partial/prefix match: library name starts the JAR filename
+            // 3. Partial/prefix match: library name starts the JAR filename (all subdirs)
             // e.g. hikaricp matches HikariCP-2.4.6.jar
             try
             {
-                var jars = Directory.GetFiles(directory, "*.jar", SearchOption.TopDirectoryOnly);
+                var jars = Directory.GetFiles(directory, "*.jar", SearchOption.AllDirectories);
                 string match = jars.FirstOrDefault(j =>
                     Path.GetFileNameWithoutExtension(j)
                         .StartsWith(libraryName, StringComparison.OrdinalIgnoreCase));
                 if (match != null) return match;
-
-                // Also search one level of subdirectories (for jserver/ etc.)
-                foreach (var sub in Directory.GetDirectories(directory))
-                {
-                    var subJars = Directory.GetFiles(sub, "*.jar", SearchOption.TopDirectoryOnly);
-                    match = subJars.FirstOrDefault(j =>
-                        Path.GetFileNameWithoutExtension(j)
-                            .StartsWith(libraryName, StringComparison.OrdinalIgnoreCase));
-                    if (match != null) return match;
-                }
             }
             catch { }
 
@@ -83,7 +73,7 @@ namespace B4JScanner
             if (!Directory.Exists(directory)) return null;
             try
             {
-                return Directory.GetFiles(directory, fileName, SearchOption.TopDirectoryOnly)
+                return Directory.GetFiles(directory, fileName, SearchOption.AllDirectories)
                     .FirstOrDefault();
             }
             catch { return null; }
